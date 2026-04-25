@@ -1,0 +1,9 @@
+.section .rodata
+.global analyzer_demo_embedded_model_start
+.global analyzer_demo_embedded_model_end
+.hidden analyzer_demo_embedded_model_start
+.hidden analyzer_demo_embedded_model_end
+
+analyzer_demo_embedded_model_start:
+.incbin "@EMBED_GGUF_ABS@"
+analyzer_demo_embedded_model_end:
