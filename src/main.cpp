@@ -1,9 +1,4 @@
-#include <fcntl.h>
-#include <unistd.h>
-
-#include <cerrno>
-#include <cstdio>
-#include <cstring>
+#include <algorithm>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -11,67 +6,15 @@
 
 #include "llama.h"
 
-extern "C" {
-extern const unsigned char analyzer_demo_embedded_model_start[];
-extern const unsigned char analyzer_demo_embedded_model_end[];
-}
-
-class EmbeddedModelFile {
- public:
-  EmbeddedModelFile() {
-    const std::string pattern = "/tmp/analyzer_embedded_model_XXXXXX.gguf";
-    std::vector<char> tmp(pattern.begin(), pattern.end());
-    tmp.push_back('\0');
-
-    int fd = mkstemps(tmp.data(), 5);  // suffix ".gguf"
-    if (fd == -1) {
-      throw std::runtime_error(std::string("mkstemps failed: ") + std::strerror(errno));
-    }
-
-    path_ = tmp.data();
-
-    const auto* begin = analyzer_demo_embedded_model_start;
-    const auto* end = analyzer_demo_embedded_model_end;
-    const size_t size = static_cast<size_t>(end - begin);
-
-    size_t written = 0;
-    while (written < size) {
-      ssize_t n = write(fd, begin + written, size - written);
-      if (n <= 0) {
-        close(fd);
-        unlink(path_.c_str());
-        throw std::runtime_error(std::string("write embedded model failed: ") + std::strerror(errno));
-      }
-      written += static_cast<size_t>(n);
-    }
-
-    if (close(fd) != 0) {
-      unlink(path_.c_str());
-      throw std::runtime_error(std::string("close temp model file failed: ") + std::strerror(errno));
-    }
-  }
-
-  ~EmbeddedModelFile() {
-    if (!path_.empty()) {
-      unlink(path_.c_str());
-    }
-  }
-
-  const std::string& path() const { return path_; }
-
- private:
-  std::string path_;
-};
-
 class AnalyzerLLM {
  public:
-  AnalyzerLLM() : embedded_model_() {
+  explicit AnalyzerLLM(const std::string& model_path) {
     llama_backend_init();
 
     llama_model_params model_params = llama_model_default_params();
-    model_ = llama_model_load_from_file(embedded_model_.path().c_str(), model_params);
+    model_ = llama_model_load_from_file(model_path.c_str(), model_params);
     if (!model_) {
-      throw std::runtime_error("Failed to load embedded model from temp file");
+      throw std::runtime_error("Failed to load model: " + model_path);
     }
 
     llama_context_params ctx_params = llama_context_default_params();
@@ -94,6 +37,7 @@ class AnalyzerLLM {
   }
 
   std::string AnalyzeCodeWithLLM(const std::string& prompt, int max_new_tokens = 256) {
+    // 1) tokenize
     std::vector<llama_token> prompt_tokens(prompt.size() + 16);
     int n_prompt = llama_tokenize(
         model_, prompt.c_str(), static_cast<int32_t>(prompt.size()), prompt_tokens.data(),
@@ -103,11 +47,13 @@ class AnalyzerLLM {
     }
     prompt_tokens.resize(n_prompt);
 
+    // 2) prefill
     llama_batch batch = llama_batch_get_one(prompt_tokens.data(), static_cast<int32_t>(prompt_tokens.size()));
     if (llama_decode(ctx_, batch) != 0) {
       throw std::runtime_error("llama_decode failed on prompt prefill");
     }
 
+    // 3) autoregressive decode
     std::string output;
     for (int i = 0; i < max_new_tokens; ++i) {
       const float* logits = llama_get_logits_ith(ctx_, batch.n_tokens - 1);
@@ -131,12 +77,14 @@ class AnalyzerLLM {
         break;
       }
 
+      // detokenize piece
       char piece[16] = {0};
       int n_piece = llama_token_to_piece(model_, next, piece, sizeof(piece), 0, true);
       if (n_piece > 0) {
         output.append(piece, n_piece);
       }
 
+      // feed next token
       batch = llama_batch_get_one(&next, 1);
       if (llama_decode(ctx_, batch) != 0) {
         throw std::runtime_error("llama_decode failed on generation step");
@@ -147,18 +95,23 @@ class AnalyzerLLM {
   }
 
  private:
-  EmbeddedModelFile embedded_model_;
   llama_model* model_ = nullptr;
   llama_context* ctx_ = nullptr;
 };
 
-int main() {
+int main(int argc, char** argv) {
+  if (argc < 2) {
+    std::cerr << "Usage: " << argv[0] << " /path/to/model.gguf\n";
+    return 1;
+  }
+
   try {
-    AnalyzerLLM analyzer;
+    const std::string model_path = argv[1];
+    AnalyzerLLM analyzer(model_path);
 
     const std::string prompt =
-        "You are a strict static code analyzer. Analyze the code and return issues with severity.\n"
-        "Code:\n"
+        "You are a strict static code analyzer. Analyze the code and return issues with severity.\\n"
+        "Code:\\n"
         "int div(int a,int b){return a/b;}";
 
     std::string result = analyzer.AnalyzeCodeWithLLM(prompt, 200);
