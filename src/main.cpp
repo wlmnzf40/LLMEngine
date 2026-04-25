@@ -12,8 +12,8 @@
 #include "llama.h"
 
 extern "C" {
-extern const unsigned char embedded_model_start[];
-extern const unsigned char embedded_model_end[];
+extern const unsigned char analyzer_demo_embedded_model_start[];
+extern const unsigned char analyzer_demo_embedded_model_end[];
 }
 
 class EmbeddedModelFile {
@@ -30,8 +30,8 @@ class EmbeddedModelFile {
 
     path_ = tmp.data();
 
-    const auto* begin = embedded_model_start;
-    const auto* end = embedded_model_end;
+    const auto* begin = analyzer_demo_embedded_model_start;
+    const auto* end = analyzer_demo_embedded_model_end;
     const size_t size = static_cast<size_t>(end - begin);
 
     size_t written = 0;

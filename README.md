@@ -14,6 +14,11 @@
 - `src/embedded_model.S.in`：通过 `.incbin` 把 GGUF 原样塞进可执行文件。
 - `src/main.cpp`：`AnalyzerLLM` 封装与 `AnalyzeCodeWithLLM(prompt)`。
 
+## 关键防冲突处理
+
+- CMake 里增加了 `if(NOT TARGET llama)`，防止上层工程已引入 `llama.cpp` 时重复 `add_subdirectory()` 造成 target 冲突。
+- 内嵌模型符号改为 `analyzer_demo_embedded_model_*`，并设置为 `.hidden`，降低链接符号冲突概率。
+
 ## 1) 编译 llama.cpp（一次性）
 
 ```bash

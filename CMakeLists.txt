@@ -24,7 +24,10 @@ if(NOT EXISTS ${EMBED_GGUF_FILE})
   message(FATAL_ERROR "EMBED_GGUF_FILE does not exist: ${EMBED_GGUF_FILE}")
 endif()
 
-add_subdirectory(${LLAMA_CPP_DIR} ${CMAKE_BINARY_DIR}/llama.cpp)
+# 避免在上层工程已引入 llama.cpp 时重复 add_subdirectory 导致 target 冲突
+if(NOT TARGET llama)
+  add_subdirectory(${LLAMA_CPP_DIR} ${CMAKE_BINARY_DIR}/llama.cpp)
+endif()
 
 set(EMBED_GGUF_ABS "${EMBED_GGUF_FILE}")
 if(NOT IS_ABSOLUTE "${EMBED_GGUF_ABS}")
